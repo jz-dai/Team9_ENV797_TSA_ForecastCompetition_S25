@@ -1,0 +1,24 @@
+---
+title: "R Notebook"
+author: Jingze Dai
+output: html_notebook
+---
+*Data Wrangling*
+
+This notebook reads all data for the forecasting competition and writes them into csv format, stored under the processed folder. 
+
+```{r}
+# importing library
+library(dplyr)
+library(openxlsx)
+library(ggplot2)
+```
+
+Importing dataset
+```{r}
+load_raw <- read.xlsx(xlsxFile = "../Data/Raw/load.xlsx")
+temperature_raw <- read.xlsx(xlsxFile = "../Data/Raw/temperature.xlsx")
+humidity_raw <- read.xlsx(xlsxFile = "../Data/Raw/relative_humidity.xlsx")
+submission_template <- read.xlsx(xlsxFile = "../Data/Raw/submission_template.xlsx")
+```
+
