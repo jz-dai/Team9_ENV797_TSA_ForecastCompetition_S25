@@ -81,10 +81,10 @@ overall_forecast
 
 
 ```{r}
-write.csv(overall_forecast, file="../Data/first_forecast.csv")
-write.csv(seasonality_forecast, file="../Data/seasonality_forecast.csv")
-write.csv(decomposed$seasonal, file="../Data/seasonality.csv")
-write.csv(trend_forecast, file= "../Data/trend_forecast.csv")
+write.csv(overall_forecast, file="../Data/Result/first_forecast.csv")
+write.csv(seasonality_forecast, file="../Data/Result/seasonality_forecast.csv")
+write.csv(decomposed$seasonal, file="../Data/Result/seasonality.csv")
+write.csv(trend_forecast, file= "../Data/Result/trend_forecast.csv")
 ```
 
 ```{r}
@@ -95,30 +95,30 @@ seasonality_plus_trend <- data.frame(date = seq(from = as.Date("2011-01-01"), to
 ```
 
 ```{r}
-write.csv(seasonality_plus_trend, file= "../Data/trend_plus_seasonality.csv", row.names = FALSE)
+write.csv(seasonality_plus_trend, file= "../Data/Result/trend_plus_seasonality.csv", row.names = FALSE)
 ```
 
 ```{r}
 seasonality_plus_trend$load = 81173.32
-write.csv(seasonality_plus_trend, file= "../Data/test_submission.csv", row.names = FALSE)
+write.csv(seasonality_plus_trend, file= "../Data/Result/test_submission.csv", row.names = FALSE)
 ```
 
 ```{r}
 naive_load <- load_daily[1827:1885,27]
 naive_model <- data.frame(date = seq(from = as.Date("2011-01-01"), to = as.Date("2011-02-28"), by = "day"),load=naive_load)
-write.csv(naive_model, file= "../Data/naive_model.csv", row.names = FALSE)
+write.csv(naive_model, file= "../Data/Result/naive_model.csv", row.names = FALSE)
 ```
 
 ```{r}
 naive_load2 <- load_daily[1827:1885,8]
 naive_model2 <- data.frame(date = seq(from = as.Date("2011-01-01"), to = as.Date("2011-02-28"), by = "day"),load=naive_load2)
-write.csv(naive_model2, file= "../Data/naive_model2.csv", row.names = FALSE)
+write.csv(naive_model2, file= "../Data/Result/naive_model2.csv", row.names = FALSE)
 ```
 
 
 ```{r}
 seasonality_plus_trend2 <- data.frame(date = seq(from = as.Date("2011-01-01"), to = as.Date("2011-02-28"), by = "day"),load=round(predicted_seasonality_plus_trend/24))
 
-write.csv(seasonality_plus_trend2, file= "../Data/trend_plus_seasonality2.csv", row.names = FALSE)
+write.csv(seasonality_plus_trend2, file= "../Data/Result/trend_plus_seasonality2.csv", row.names = FALSE)
 ```
 
