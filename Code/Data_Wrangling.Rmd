@@ -12,6 +12,8 @@ This notebook reads all data for the forecasting competition and writes them int
 library(dplyr)
 library(openxlsx)
 library(ggplot2)
+library(lubridate)
+library(forecast)
 ```
 
 Importing dataset
@@ -20,5 +22,103 @@ load_raw <- read.xlsx(xlsxFile = "../Data/Raw/load.xlsx")
 temperature_raw <- read.xlsx(xlsxFile = "../Data/Raw/temperature.xlsx")
 humidity_raw <- read.xlsx(xlsxFile = "../Data/Raw/relative_humidity.xlsx")
 submission_template <- read.xlsx(xlsxFile = "../Data/Raw/submission_template.xlsx")
+```
+
+```{r}
+for (i in 3:26) {
+  print(sum(is.na(load_raw[,i])))
+}
+```
+
+```{r}
+load_daily <- load_raw
+load_daily[93,4] = mean(load_daily[93,3] + load_daily[93,5])
+load_daily[457,4] = mean(load_daily[457,3] + load_daily[457,5])
+load_daily[800,4] = mean(load_daily[800,3] + load_daily[800,5])
+load_daily[1164,4] = mean(load_daily[1164,3] + load_daily[1164,5])
+load_daily[1528,4] = mean(load_daily[1528,3] + load_daily[1528,5])
+load_daily[1899,4] = mean(load_daily[1899,3] + load_daily[1899,5])
+load_daily$daily.sum <- rowSums(select(load_daily,h1:h24))
+```
+
+
+Aggregating hourly data to daily data
+
+```{r}
+daily_load <- ts(load_daily$daily.sum, start = c(2006,1,1), frequency = 365)
+
+autoplot(daily_load)
+```
+```{r}
+decomposed <- decompose(daily_load)
+plot(decomposed)
+
+acf(daily_load)
+pacf(daily_load)
+```
+
+
+```{r}
+autofit_arima <- auto.arima(daily_load)
+```
+
+```{r}
+arima_forecast <- forecast(object = autofit_arima, h=59)
+
+```
+
+```{r}
+trend_forecast <- forecast(object = decomposed$trend, h=59)
+summary(trend_forecast)
+
+
+seasonality_forecast <- forecast(object = decomposed$seasonal, h=59)
+summary(seasonality_forecast)
+
+overall_forecast <- trend_forecast$mean + seasonality_forecast$mean
+overall_forecast
+```
+
+
+```{r}
+write.csv(overall_forecast, file="../Data/first_forecast.csv")
+write.csv(seasonality_forecast, file="../Data/seasonality_forecast.csv")
+write.csv(decomposed$seasonal, file="../Data/seasonality.csv")
+write.csv(trend_forecast, file= "../Data/trend_forecast.csv")
+```
+
+```{r}
+trend_predicted <- as.matrix(trend_forecast$mean)
+predicted_seasonality_plus_trend <- decomposed$seasonal[1:59] + trend_predicted
+
+seasonality_plus_trend <- data.frame(date = seq(from = as.Date("2011-01-01"), to = as.Date("2011-02-28"), by = "day"),load=predicted_seasonality_plus_trend)
+```
+
+```{r}
+write.csv(seasonality_plus_trend, file= "../Data/trend_plus_seasonality.csv", row.names = FALSE)
+```
+
+```{r}
+seasonality_plus_trend$load = 81173.32
+write.csv(seasonality_plus_trend, file= "../Data/test_submission.csv", row.names = FALSE)
+```
+
+```{r}
+naive_load <- load_daily[1827:1885,27]
+naive_model <- data.frame(date = seq(from = as.Date("2011-01-01"), to = as.Date("2011-02-28"), by = "day"),load=naive_load)
+write.csv(naive_model, file= "../Data/naive_model.csv", row.names = FALSE)
+```
+
+```{r}
+naive_load2 <- load_daily[1827:1885,8]
+naive_model2 <- data.frame(date = seq(from = as.Date("2011-01-01"), to = as.Date("2011-02-28"), by = "day"),load=naive_load2)
+write.csv(naive_model2, file= "../Data/naive_model2.csv", row.names = FALSE)
+```
+
+
+```{r}
+seasonality_plus_trend2 <- data.frame(date = seq(from = as.Date("2011-01-01"), to = as.Date("2011-02-28"), by = "day"),load=round(predicted_seasonality_plus_trend/24))
+
+write.csv(seasonality_plus_trend2, file= "../Data/trend_plus_seasonality2.csv", row.names = FALSE)
 ```
 
