@@ -1,9 +1,8 @@
 ---
-title: "R Notebook"
+title: "Data Wrangling + First Model"
 author: Jingze Dai
 output: html_notebook
 ---
-*Data Wrangling*
 
 This notebook reads all data for the forecasting competition and writes them into csv format, stored under the processed folder. 
 
@@ -15,34 +14,148 @@ library(ggplot2)
 library(lubridate)
 library(forecast)
 ```
+*Data Wrangling for hourly data*
 
 Importing dataset
 ```{r}
+# reading xlsx files
 load_raw <- read.xlsx(xlsxFile = "../Data/Raw/load.xlsx")
 temperature_raw <- read.xlsx(xlsxFile = "../Data/Raw/temperature.xlsx")
 humidity_raw <- read.xlsx(xlsxFile = "../Data/Raw/relative_humidity.xlsx")
 submission_template <- read.xlsx(xlsxFile = "../Data/Raw/submission_template.xlsx")
 ```
 
+Viewing the dataset
 ```{r}
-for (i in 3:26) {
-  print(sum(is.na(load_raw[,i])))
+load_raw$date <- convertToDate(load_raw$date)
+summary(load_raw)
+```
+
+We can observe that there are 6 NA data from hour 2, and several extremely low values. We should take a look at their neighboring values to understand if we need to interpolate the data.
+
+```{r}
+# locating NAs
+NA_position <- which(is.na(load_raw), arr.ind = TRUE)
+for(i in 1:nrow(NA_position)) {
+  row <- NA_position[i, 1]
+  
+  # we can obtain the load 2 hours before and after the NA
+  # in this case, all NAs are from hour 2, thus we need information on hour 24 in the previous day up to hour 4 in the same day
+  print(paste0("NA observed in the dataset and its neighboring values for date ", load_raw[row,2]))
+  print(load_raw[row-1, 26])
+  print(load_raw[row, 3])
+  print(load_raw[row, 4])
+  print(load_raw[row, 5])
+  print(load_raw[row, 6])
+}
+```
+The NAs might be resulted by either a blackout or malfunctioning sensors. We can observe that the neighoring values are relatively close to each other, so we could fill up the NAs by taking the average value of the load data 1 hour before and after the NA.
+
+```{r}
+# interpolating NAs by taking averages of their neighbors
+for(i in 1:nrow(NA_position)) {
+  row <- NA_position[i, 1]
+  column <- NA_position[i, 2]
+  load_raw[row, column] = mean(c(load_raw[row,column-1], load_raw[row,column+1]))
+  print(paste0("NA observed in the dataset and its neighboring values for date ", load_raw[row,2]))
+  print(load_raw[row-1, 26])
+  print(load_raw[row, 3])
+  print(load_raw[row, 4])
+  print(load_raw[row, 5])
+  print(load_raw[row, 6])
 }
 ```
 
+We can observe that the NAs are indeed filled with the average of values 1 hour before and after them. Now we can do the same for the zero values.
+
 ```{r}
+# locating zeros in the dataset
+zero_position <- which(load_raw == 0, arr.ind = TRUE)
+
+for(i in 1:nrow(zero_position)) {
+  row <- zero_position[i, 1]
+  column <- zero_position[i, 2]
+  
+  print(paste0("Zero observed in the dataset at row ", row, " and column ", column, " for date ", load_raw[row, 2]))
+}
+```
+We can see that load is zero for multiple hours on 03/08/2005, 08/18/2009 and 11/12/2009, we can take a further look at the neighboring values
+
+```{r}
+print("for date 2005-03-08")
+print(load_raw[67, 13])
+print(load_raw[67, 14])
+print("zero during hour 13 to 18")
+print(load_raw[67, 21])
+print(load_raw[67, 22])
+
+print("for date 2005-07-28")
+print(load_raw[208, 25])
+print(load_raw[208, 26])
+print("zero during hour 1")
+print(load_raw[209, 4])
+print(load_raw[209, 5])
+
+print("for date 2006-08-30")
+print(load_raw[607, 18])
+print(load_raw[607, 19])
+print("zero during hour 18")
+print(load_raw[607, 21])
+print(load_raw[607, 22])
+
+print("for date 2009-08-18")
+print(load_raw[1691, 18])
+print(load_raw[1691, 19])
+print("zero during hour 18 to 21")
+print(load_raw[1691, 24])
+print(load_raw[1691, 25])
+
+print("for date 2009-11-12")
+print(load_raw[1777, 8])
+print(load_raw[1777, 9])
+print("zero during hour 8 to 11")
+print(load_raw[1777, 14])
+print(load_raw[1777, 15])
+
+print("for date 2010-08-24")
+print(load_raw[2061, 25])
+print(load_raw[2061, 26])
+print("zero during hour 8")
+print(load_raw[2062, 4])
+print(load_raw[2062, 5])
+```
+
+For now, we can ignore these zeros.
+
+```{r}
+load_hourly_processed <- load_raw %>% 
+  select(2:26)
+# writing csv file
+write.csv(load_hourly_processed, file= "../Data/Processed/hourly_processed.csv", row.names = FALSE)
+```
+
+*Data Wrangling for daily data*
+
+```{r}
+# creating a new dataset for the sum of the daily load
 load_daily <- load_raw
-load_daily[93,4] = mean(load_daily[93,3] + load_daily[93,5])
-load_daily[457,4] = mean(load_daily[457,3] + load_daily[457,5])
-load_daily[800,4] = mean(load_daily[800,3] + load_daily[800,5])
-load_daily[1164,4] = mean(load_daily[1164,3] + load_daily[1164,5])
-load_daily[1528,4] = mean(load_daily[1528,3] + load_daily[1528,5])
-load_daily[1899,4] = mean(load_daily[1899,3] + load_daily[1899,5])
+
+# calculating daily total
 load_daily$daily.sum <- rowSums(select(load_daily,h1:h24))
+load_daily <- load_daily %>% 
+  select(date, daily.sum)
+
+load_daily_processed <- load_daily %>% 
+  select(date, daily.sum)
+
+# writing csv file
+write.csv(load_daily_processed, file= "../Data/Processed/daily_processed.csv", row.names = FALSE)
 ```
 
 
-Aggregating hourly data to daily data
+
+To be continued...
+
 
 ```{r}
 daily_load <- ts(load_daily$daily.sum, start = c(2006,1,1), frequency = 365)
