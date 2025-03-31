@@ -1,0 +1,147 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This notebook describes our second model, which manually fits the past data into a seasonal arima model.
+
+```{r}
+# importing libraries
+library(ggplot2)
+library(forecast)
+library(tseries)
+library(cowplot)
+library(Kendall)
+library(lubridate)
+library(dplyr)
+```
+
+
+```{r}
+load_daily <- read.csv(file= "../Data/Processed/daily_processed.csv", header = TRUE)
+daily_load <- ts(load_daily$daily.sum, start = c(2006,1,1), frequency = 365)
+```
+
+
+```{r warning=FALSE}
+# plotting ACF and PACF
+acf_plot1 <- autoplot(Acf(daily_load, lag=1000, plot = FALSE), ylin=c(-0.5,1), main="ACF plot for daily load")
+pacf_plot1 <- autoplot(Pacf(daily_load, lag=1000, plot = FALSE), ylin=c(-0.5,1), main="PACF plot for daily load")
+acf_plot2 <- autoplot(Acf(daily_load, lag=40, plot = FALSE), ylin=c(-0.5,1), main="ACF plot for daily load")
+pacf_plot2 <- autoplot(Pacf(daily_load, lag=40, plot = FALSE), ylin=c(-0.5,1), main="PACF plot for daily load")
+
+plot_grid(acf_plot1, pacf_plot1, acf_plot2, pacf_plot2, nrow = 2)
+```
+
+We can observe the exponential decay of the ACF plot and the cut-off point for PACF is at lag=3. 
+
+```{r}
+# performing ADF test
+print(adf.test(daily_load, alternative = "stationary"))
+```
+
+No stocastic trend is observed.
+
+```{r}
+# performing seasonal Mann Kendall test
+summary(SeasonalMannKendall(daily_load))
+```
+
+Deterministic trend is observed.
+
+```{r}
+print(ndiffs(daily_load))
+
+# differencing the series
+diff_load <- diff(daily_load, lag=1, differences = 1)
+```
+
+```{r}
+acf_plot_diff <- autoplot(Acf(diff_load, lag=1000, plot = FALSE), ylin=c(-0.5,1), main="ACF plot for differenced daily load")
+pacf_plot_diff <- autoplot(Pacf(diff_load, lag=1000, plot = FALSE), ylin=c(-0.5,1), main="PACF plot for differenced daily load")
+
+plot_grid(acf_plot_diff, pacf_plot_diff)
+```
+
+Signnificant ACF value is observed around lag=365, thus P=0, Q=1, D=1.
+Signicicant cut-off for both ACF and PACF plots, thus p=1, q=1, d=0
+
+```{r}
+# Fitting the model into SARIMA(1,0,1)(0,1,1)
+SARIMA_Model <- Arima(daily_load, order = c(1,0,1), seasonal=c(0,1,1), include.constant = TRUE)
+summary(Model_SARIMA)
+```
+
+
+```{r}
+load_daily$month <- month(load_daily$date)
+load_daily$year <- year(load_daily$date)
+load_Jan <- load_daily %>% filter(month == 1)
+load_Feb <- load_daily %>% filter(month == 2)
+load_JanFeb <- rbind(load_Jan, load_Feb)
+load_JanFeb <- load_JanFeb %>%
+  arrange(date) %>% 
+  select(date, daily.sum) 
+
+load_JanFeb <- load_JanFeb[-237, ]
+```
+
+
+```{r}
+load_JanFeb_ts <- ts(load_JanFeb$daily.sum, start = c(2006,1), frequency = 59)
+autoplot(load_JanFeb_ts)
+acf_JanFeb <- autoplot(Acf(load_JanFeb_ts, lag = 200, plot = FALSE), ylin=c(-0.5,1), main = "ACF plot for data in Jan and Feb")
+pacf_JanFeb <- autoplot(Pacf(load_JanFeb_ts, lag = 200, plot = FALSE), ylin=c(-0.5,1), main = "PACF plot for data in Jan and Feb")
+
+plot_grid(acf_JanFeb, pacf_JanFeb)
+```
+
+```{r}
+plot(decompose(load_JanFeb_ts))
+```
+
+```{r}
+JanFeb_train <- load_JanFeb %>% top_n(284)
+train_ts <- ts(JanFeb_train$daily.sum, start=c(2006,1), frequency = 59)
+JanFeb_test <- load_JanFeb %>% top_n(284-355)
+```
+
+```{r}
+SARIMA_autofit <- auto.arima(train_ts)
+print(SARIMA_autofit)
+```
+
+```{r}
+SARIMA_forecast <- forecast(object = SARIMA_autofit, h=71)
+plot(SARIMA_forecast)
+```
+
+
+```{r}
+score <- accuracy(SARIMA_forecast$mean, JanFeb_test$daily.sum)
+print(score)
+```
+
+```{r}
+
+autoplot(load_JanFeb_ts) +
+    autolayer(SARIMA_forecast,series="SARIMA",PI=FALSE)
+    ylab("Electricity Price") 
+```
+
+```{r}
+SARIMA_autofit_final <- auto.arima(load_JanFeb_ts)
+print(SARIMA_autofit_final)
+
+forecasted <- forecast(object = SARIMA_autofit_final, h=59)
+plot(forecasted)
+
+predicted_load <- as.matrix(forecasted$mean)
+```
+
+```{r}
+autofit_model <- data.frame(date = seq(from = as.Date("2011-01-01"), to = as.Date("2011-02-28"), by = "day"),load=round(predicted_load/24))
+
+write.csv(autofit_model, file= "../Data/Result/autofit_model.csv", row.names = FALSE)
+```
+
