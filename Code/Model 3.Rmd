@@ -1,0 +1,210 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r}
+library(ggplot2)
+library(forecast)
+library(tseries)
+library(cowplot)
+library(Kendall)
+library(lubridate)
+library(dplyr)
+library(kableExtra)
+library(smooth)
+```
+
+```{r}
+load_daily <- read.csv(file= "./Data/Processed/daily_processed.csv", header = TRUE)
+load_train <- subset(load_daily, year(load_daily$date)<2010)
+load_test <- subset(load_daily, year(load_daily$date)>=2010)
+
+load_train_yearly_ts <- ts(load_train$daily.sum, start = c(2005,1,1), frequency = 365)
+load_test_yearly_ts <- ts(load_test$daily.sum, start = c(2010,1,1), frequency = 365)
+load_train_monthly_ts <- ts(load_train$daily.sum, start = c(2005,1,1), frequency = 30)
+load_test_monthly_ts <- ts(load_test$daily.sum, start = c(2010,1,1), frequency = 30)
+
+load_train_msts <- msts(load_train$daily.sum, start = c(2005,1,1), seasonal.periods = c(30,365))
+load_test_msts <- msts(load_test$daily.sum, start = c(2010,1,1), seasonal.periods = c(30,365))
+```
+
+
+## STL+ETS
+```{r}
+stl_ets_fit <- stlm(load_train_ts, s.window = "periodic", method = "ets")
+print(stl_ets_fit$model)
+
+#forecasting test data
+stl_ets_forecast <- forecast(stl_ets_fit, h = length(load_test_ts))
+
+#accuracy assessment
+stl_ets_accuracy <- accuracy(stl_ets_forecast$mean, load_test_ts)
+
+#visualization
+plot(stl_ets_forecast)
+```
+
+## TBATS 
+
+```{r}
+#fit TBATS
+tbats_fit <- tbats(load_train_msts)
+print(tbats_fit)
+checkresiduals(tbats_fit)
+
+#forecasting test data
+tbats_forecast <- forecast(tbats_fit, h = length(load_test_ts))
+
+#accuracy assessment
+tbats_accuracy <- accuracy(tbats_forecast$mean, load_test_ts)
+
+#visualization
+plot(tbats_forecast)
+```
+
+## Neuron Network
+
+```{r}
+
+NN_fit <- nnetar(load_train_ts, repeats = 20)
+
+NN_for <- forecast(NN_fit, h=length(load_test_ts))
+
+forecast_NN_accuracy <- accuracy(NN_for$mean, load_test_ts)
+
+print(forecast_NN_accuracy)
+
+plot(NN_for)
+
+```
+
+```{r}
+NN_fourier_fit <- nnetar(load_train_msts, repeats = 50,
+                 xreg=fourier(load_train_msts))
+
+NN_fourier_for <- forecast(NN_fourier_fit, h=length(load_test_ts), xreg=fourier(load_train_msts, h=length(load_test_ts)))
+
+forecast_NN_fourier_accuracy <- accuracy(NN_fourier_for$mean, load_test_msts)
+
+print(forecast_NN_fourier_accuracy)
+
+plot(NN_fourier_for)
+
+```
+
+## State Space - Smooth
+
+```{r}
+SSES <- es(methane_train_ts,model="ZZZ",h=36,holdout=FALSE)
+
+SSES_for <-forecast(SSES,h=36, interval="prediction")
+
+plot(SSES_for)
+
+forecast_SSES_accuracy <- accuracy(SSES$forecast, methane_test_ts)
+
+print(forecast_SSES_accuracy)
+```
+
+## State Space - BSM
+
+```{r}
+SSBSM <- StructTS(methane_train_ts,
+                    type="BSM",fixed=c(NA,NA,NA,NA))
+
+SSBSM_for <- forecast(SSBSM,h=36)
+
+plot(SSBSM_for)
+
+forecast_SSBSM_accuracy <- accuracy(SSBSM_for$mean,methane_test_ts)
+
+print(forecast_SSBSM_accuracy)
+
+```
+
+# Visualization
+```{r}
+methane_all <- read.csv("../Data/Processed/methane_all.csv")
+methane_all_ts <- ts(
+  methane_all$average,
+  start = c(1983, 7),
+  frequency = 12
+)
+
+arima_forecast_seasoned <- ts(
+  forecast_arima$mean + decomposed$seasonal[length(methane_train_ts) + 1:36],
+  start = c(2022, 1),
+  frequency = 12
+)
+
+
+autoplot(methane_all_ts) +
+  autolayer(arima_forecast_seasoned,
+            series = "ARIMA (reseasoned)",
+            PI = FALSE) +
+  autolayer(forecast_sarima$mean,
+            series = "SARIMA",
+            PI = FALSE) +
+  autolayer(forecast_arima_fourier$mean,
+            series = "ARIMA + Fourier",
+            PI = FALSE) +
+  autolayer(stl_ets_forecast$mean,
+            series = "STL + ETS",
+            PI = FALSE) +
+  autolayer(tbats_forecast$mean,
+            series = "TBATS",
+            PI = FALSE) +
+  autolayer(NN_for$mean,
+            series = "Neuron Network",
+            PI = FALSE) +
+  autolayer(NN_fourier_for$mean,
+            series = "Neuron Network + Fourier",
+            PI = FALSE) +
+  autolayer(SSES_for$mean,
+            series = "State Space - Smooth",
+            PI = FALSE) +
+  autolayer(SSBSM_for$mean,
+            series = "State Space - BSM",
+            PI = FALSE) +
+  autolayer(window(methane_all_ts, start = c(2022, 1)),
+            series = "True Data") +
+  labs(title = "Methane Forecasts",
+       y = "Methane Concentration (ppb)",
+       x = "Time",
+       col = "Models") +
+  coord_cartesian(xlim = c(2021, 2024), ylim = c(1885, 1935))
+
+```
+
+```{r}
+forecast_performance <- data.frame(rbind(
+  forecast_arima_accuracy,
+  forecast_sarima_accuracy,
+  forecast_arima_fourier_accuracy,
+  stl_ets_accuracy,
+  tbats_accuracy,
+  forecast_NN_accuracy,
+  forecast_NN_fourier_accuracy,
+  forecast_SSES_accuracy,
+  forecast_SSBSM_accuracy
+))
+
+rownames(forecast_performance) <- c(
+  "ARIMA (reseasoned)",
+  "SARIMA",
+  "ARIMA + Fourier",
+  "STL + ETS",
+  "TBATS",
+  "Neuron Network",
+  "Neuron Network + Fourier",
+  "State Space - Smooth",
+  "State Space - BSM"
+)
+
+
+kable(forecast_performance,
+      caption = "Forecast Accuracy Metrics for All Models",
+      digits = 3,
+      booktabs = TRUE)
+```
+
