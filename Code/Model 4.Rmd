@@ -1,0 +1,204 @@
+---
+title: "Model 4"
+output: html_notebook
+---
+
+##Importing library
+```{r}
+library(ggplot2)
+library(forecast)
+library(cowplot)
+library(Kendall)
+library(tseries)
+library(lubridate)
+library(kableExtra)
+library(smooth)
+```
+
+##Importing datasets
+```{r}
+load_daily <- read.csv("../Data/Processed/daily_processed.csv")
+load_daily$date <- as.Date(load_daily$date)
+
+load_train <- subset(load_daily, year(load_daily$date) < 2010)
+load_test <- subset(load_daily, year(load_daily$date) >= 2010)
+
+load_train_ts <- ts(load_train$daily.sum, start = c(2005, 1), frequency = 365)
+load_test_ts <- ts(load_test$daily.sum, start = c(2010, 1), frequency = 365)
+
+load_train_msts <- msts(load_train$daily.sum, start = c(2005,1), seasonal.periods = c(30, 365))
+load_test_msts <- msts(load_test$daily.sum, start = c(2010,1), seasonal.periods = c(30, 365))
+
+h <- 60 
+```
+
+##Decomposing ts
+```{r}
+decomposed_load <- decompose(load_train_ts, type = "additive")
+plot(decomposed_load)
+
+load_trend <- decomposed_load$trend
+load_seasonality <- decomposed_load$seasonal
+
+load_detrended <- load_train_ts - load_trend
+load_deseasoned <- load_train_ts - load_seasonality
+```
+
+##Forecasting
+
+###Arima on deseasoned
+```{r}
+arima_load_fit <- auto.arima(load_deseasoned, max.D = 0, max.P = 0, max.Q = 0)
+print(arima_load_fit)
+
+checkresiduals(arima_load_fit)
+
+forecast_arima_load <- forecast(arima_load_fit, h = h)
+
+seasonality_extension <- rep(load_seasonality[1:60], length.out = 60)
+forecast_arima_load_reseasoned <- ts(forecast_arima_load$mean + seasonality_extension,
+                                     start = c(2010, 1),
+                                     frequency = 365)
+
+forecast_arima_load_accuracy <- accuracy(forecast_arima_load_reseasoned, load_test_ts[1:h])
+
+autoplot(window(load_train_ts, start=c(2008))) +
+  autolayer(forecast_arima_load_reseasoned, series = "ARIMA", PI = FALSE) +
+  labs(title = "ARIMA Forecast", x = "Year", y = "Daily Load (MW)")
+
+```
+
+###Sarima
+```{r}
+sarima_load_fit <- auto.arima(load_train_ts) 
+print(sarima_load_fit)
+
+checkresiduals(sarima_load_fit)
+
+forecast_sarima_load <- forecast(sarima_load_fit, h = h)
+
+forecast_sarima_load_accuracy <- accuracy(forecast_sarima_load$mean, load_test_ts[1:h])
+
+autoplot(window(load_train_ts, start = c(2008))) +
+  autolayer(forecast_sarima_load$mean, series = "SARIMA", PI = FALSE) +
+  labs(title = "SARIMA Forecast", x = "Year", y = "Daily Load (MW)")
+
+```
+
+###Arima + Fourier
+```{r}
+fourier_terms_train <- fourier(load_train_msts, K = c(2, 6))
+
+arima_fourier_load_fit <- auto.arima(load_train_msts,
+                                     seasonal = FALSE,
+                                     lambda = NULL,
+                                     xreg = fourier_terms_train)
+
+print(arima_fourier_load_fit)
+
+checkresiduals(arima_fourier_load_fit)
+
+fourier_terms_forecast <- fourier(load_train_msts, K = c(2, 6), h = h)
+
+forecast_arima_fourier_load <- forecast(arima_fourier_load_fit,
+                                        xreg = fourier_terms_forecast,
+                                        h = h)
+
+forecast_arima_fourier_load_accuracy <- accuracy(forecast_arima_fourier_load$mean, load_test_msts[1:h])
+
+autoplot(window(load_train_msts, start = c(2008))) +
+  autolayer(forecast_arima_fourier_load$mean, series = "ARIMA + Fourier", PI = FALSE) +
+  labs(title = "ARIMA + Fourier Forecast", x = "Year", y = "Daily Load (MW)")
+```
+
+###STL+ETS
+```{r}
+stl_ets_load_fit <- stlm(load_train_ts, s.window = "periodic", method = "ets")
+print(stl_ets_load_fit$model)
+
+stl_ets_load_forecast <- forecast(stl_ets_load_fit, h = h)
+
+stl_ets_load_accuracy <- accuracy(stl_ets_load_forecast$mean, load_test_ts[1:h])
+
+autoplot(window(load_train_ts, start = c(2008))) +
+  autolayer(stl_ets_load_forecast$mean, series = "STL + ETS", PI = FALSE) +
+  labs(title = "STL + ETS Forecast", x = "Year", y = "Daily Load (MW)")
+```
+
+###TBATS
+```{r}
+tbats_load_fit <- tbats(load_train_msts)
+print(tbats_load_fit)
+
+checkresiduals(tbats_load_fit)
+
+tbats_load_forecast <- forecast(tbats_load_fit, h = h)
+
+tbats_load_accuracy <- accuracy(tbats_load_forecast$mean, load_test_msts[1:h])
+
+autoplot(window(load_train_msts, start = c(2008))) +
+  autolayer(tbats_load_forecast$mean, series = "TBATS", PI = FALSE) +
+  labs(title = "TBATS Forecast", x = "Year", y = "Daily Load (MW)")
+
+```
+
+###Neuron Network (avg of 20 times)
+```{r}
+nn_load_fit <- nnetar(load_train_ts, p = 1, P = 7)
+
+set.seed(797)  
+nn_load_forecasts <- replicate(20, forecast(nn_load_fit, h = h)$mean)
+
+nn_load_forecast_mean <- ts(rowMeans(nn_load_forecasts),
+                            start = c(2010, 1),
+                            frequency = 365)
+
+forecast_nn_load_accuracy <- accuracy(nn_load_forecast_mean, load_test_ts[1:h])
+
+autoplot(window(load_train_ts, start = c(2008))) +
+  autolayer(nn_load_forecast_mean, series = "Neural Network (Avg 20 Runs)", PI = FALSE) +
+  labs(title = "Neural Network Forecast (Averaged)", x = "Year", y = "Daily Load (MW)")
+```
+
+
+###State space -- BSM
+```{r}
+# Fit BSM (Basic Structural Model)
+ssbsm_load_fit <- StructTS(load_train_ts, type = "BSM", fixed = c(NA, NA, NA, NA))
+
+# Forecast 60 days ahead
+ssbsm_load_forecast <- forecast(ssbsm_load_fit, h = h)
+
+# Calculate accuracy
+forecast_ssbsm_load_accuracy <- accuracy(ssbsm_load_forecast$mean, load_test_ts[1:h])
+
+# Plot
+autoplot(window(load_train_ts, start = c(2008))) +
+  autolayer(ssbsm_load_forecast$mean, series = "State Space - BSM", PI = FALSE) +
+  labs(title = "State Space BSM Forecast", x = "Year", y = "Daily Load (MW)")
+```
+
+
+##Combined
+```{r}
+forecast_list <- list(
+  "ARIMA (reseasoned)" = forecast_arima_load_reseasoned,
+  "SARIMA" = forecast_sarima_load$mean,
+  "STL + ETS" = stl_ets_load_forecast$mean,
+  "TBATS" = tbats_load_forecast$mean,
+  "State Space - BSM" = ssbsm_load_forecast$m  ean
+)
+
+autoplot(window(load_test_ts, end = c(2010, 3))) +
+  lapply(names(forecast_list), function(name) {
+    autolayer(forecast_list[[name]], series = name, PI = FALSE)
+  }) +
+  labs(title = "Electricity Load Forecast Comparison",
+       x = "Date",
+       y = "Daily Load (MW)",
+       color = "Model") +
+  guides(color = guide_legend(title = "Models")) +
+  coord_cartesian(xlim = c(2010, 2010.2))
+
+```
+
